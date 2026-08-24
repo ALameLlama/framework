@@ -194,6 +194,30 @@ class Schedule
     }
 
     /**
+     * Add a sequential chain of Artisan commands to the schedule.
+     *
+     * @param  \Closure  $callback
+     * @return \Illuminate\Console\Scheduling\CommandChainEvent
+     */
+    public function chain(Closure $callback)
+    {
+        $chain = new ChainSchedule(
+            $this->eventMutex, $this->timezone, fn ($parameters) => $this->compileParameters($parameters)
+        );
+        $callback($chain);
+
+        if ($chain->events() === []) {
+            throw new \InvalidArgumentException('A scheduled command chain may not be empty.');
+        }
+
+        $this->events[] = $event = new CommandChainEvent($this->eventMutex, $chain->events(), $this, $this->timezone);
+
+        $this->mergePendingAttributes($event);
+
+        return $event;
+    }
+
+    /**
      * Add a new job callback event to the schedule.
      *
      * @param  object|string  $job

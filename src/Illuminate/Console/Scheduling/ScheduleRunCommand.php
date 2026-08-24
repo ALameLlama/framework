@@ -26,7 +26,7 @@ class ScheduleRunCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'schedule:run {--whisper : Do not output message indicating that no jobs were ready to run}';
+    protected $signature = 'schedule:run {--whisper : Do not output message indicating that no jobs were ready to run} {--chain= : Run a named command chain body}';
 
     /**
      * The console command description.
@@ -111,6 +111,26 @@ class ScheduleRunCommand extends Command
         $this->handler = $handler;
         $this->phpBinary = Application::phpBinary();
 
+        if (($name = $this->option('chain')) !== null) {
+            $chains = collect($this->schedule->events())->filter(
+                fn ($event) => $event instanceof CommandChainEvent && $event->description === $name
+            );
+
+            if ($chains->count() !== 1) {
+                $this->components->error("Expected exactly one scheduled command chain named [{$name}].");
+
+                return self::FAILURE;
+            }
+
+            try {
+                return $chains->first()->executeChildren($this->laravel, true);
+            } catch (Throwable $e) {
+                $this->handler->report($e);
+
+                return self::FAILURE;
+            }
+        }
+
         $events = $this->schedule->dueEvents($this->laravel);
 
         if ($events->contains->isRepeatable()) {
@@ -185,15 +205,33 @@ class ScheduleRunCommand extends Command
     {
         $summary = $event->getSummaryForDisplay();
 
-        $command = $event instanceof CallbackEvent
-            ? $summary
-            : trim(str_replace($this->phpBinary, '', $event->command));
+        $command = match (true) {
+            $event instanceof CallbackEvent => $summary,
+            $event instanceof CommandChainEvent => $event->getSummaryForDisplay(),
+            default => trim(str_replace($this->phpBinary, '', $event->command)),
+        };
+
+        $statuses = [];
+
+        if ($event->runInBackground) {
+            $statuses[] = 'in background';
+        }
+
+        if ($event instanceof CommandChainEvent && $event->shouldContinueOnFailure) {
+            $statuses[] = 'continuing on errors';
+        }
+
+        if ($event instanceof CommandChainEvent && $event->hasSelectedFailureContinuation()) {
+            $statuses[] = 'continuing on selected errors';
+        }
+
+        $status = $statuses === [] ? '' : ' '.implode(', ', $statuses);
 
         $description = sprintf(
             '<fg=gray>%s</> Running [%s]%s',
             Carbon::now()->format('Y-m-d H:i:s'),
             $command,
-            $event->runInBackground ? ' in background' : '',
+            $status,
         );
 
         $this->components->task($description, function () use ($event) {
@@ -225,7 +263,9 @@ class ScheduleRunCommand extends Command
 
         if (! $event instanceof CallbackEvent) {
             $this->components->bulletList([
-                $event->getSummaryForDisplay(),
+                $event instanceof CommandChainEvent
+                    ? $event->getExecutionDetail()
+                    : $event->getSummaryForDisplay(),
             ]);
         }
     }

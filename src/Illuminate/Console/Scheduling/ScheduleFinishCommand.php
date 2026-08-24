@@ -36,16 +36,21 @@ class ScheduleFinishCommand extends Command
      * Execute the console command.
      *
      * @param  \Illuminate\Console\Scheduling\Schedule  $schedule
-     * @return void
+     * @return int
      */
     public function handle(Schedule $schedule)
     {
-        (new Collection($schedule->events()))
-            ->filter(fn ($value) => $value->mutexName() == $this->argument('id'))
-            ->each(function ($event) {
-                $event->finish($this->laravel, $this->argument('code'));
+        $events = (new Collection($schedule->events()))
+            ->filter(fn ($value) => $value->mutexName() === $this->argument('id'));
 
-                $this->laravel->make(Dispatcher::class)->dispatch(new ScheduledBackgroundTaskFinished($event));
-            });
+        if ($events->count() !== 1) {
+            return self::FAILURE;
+        }
+
+        $event = $events->first();
+        $event->finish($this->laravel, $this->argument('code'));
+        $this->laravel->make(Dispatcher::class)->dispatch(new ScheduledBackgroundTaskFinished($event));
+
+        return self::SUCCESS;
     }
 }

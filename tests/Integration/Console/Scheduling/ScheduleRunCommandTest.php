@@ -17,6 +17,31 @@ use ReflectionProperty;
 
 class ScheduleRunCommandTest extends TestCase
 {
+    public function test_command_chain_has_readable_running_labels()
+    {
+        $schedule = $this->app->make(Schedule::class);
+        $define = function ($chain) {
+            $chain->command('app:a');
+            $chain->command('app:b');
+            $chain->command('app:c');
+        };
+        $schedule->chain($define)->everyMinute();
+        $schedule->chain($define)->continueOnFailure()->everyMinute();
+        $schedule->chain(function ($chain) {
+            $chain->command('app:a')->continueOnFailure();
+            $chain->command('app:b');
+        })->everyMinute();
+        $schedule->chain($define)->name('background-chain')->runInBackground()->everyMinute();
+        $schedule->chain($define)->name('continued-background-chain')->continueOnFailure()->runInBackground()->everyMinute();
+
+        $this->artisan('schedule:run')
+            ->expectsOutputToContain('Running [app:a → app:b → app:c]')
+            ->expectsOutputToContain('Running [app:a → app:b → app:c] continuing on errors')
+            ->expectsOutputToContain('Running [app:a → app:b] continuing on selected errors')
+            ->expectsOutputToContain('Running [background-chain] in background')
+            ->expectsOutputToContain('Running [continued-background-chain] in background, continuing on errors');
+    }
+
     /**
      * @throws BindingResolutionException
      */

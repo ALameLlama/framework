@@ -45,20 +45,29 @@ class CommandBuilder
      */
     protected function buildBackgroundCommand(Event $event)
     {
-        $output = ProcessUtils::escapeArgument($event->output);
+        return $this->buildBackgroundCommandUsing(
+            $event, $event->command, $event->user, $event->output, $event->shouldAppendOutput, true
+        );
+    }
 
-        $redirect = $event->shouldAppendOutput ? ' >> ' : ' > ';
+    public function buildBackgroundCommandUsing(Event $event, $command, $user, $outputPath, $append, $useEventUser = false)
+    {
+        $output = ProcessUtils::escapeArgument($outputPath);
+
+        $redirect = $append ? ' >> ' : ' > ';
 
         $finished = Application::formatCommandString('schedule:finish').' "'.$event->mutexName().'"';
 
         if (windows_os()) {
-            return 'start /b cmd /v:on /c "('.$event->command.' & '.$finished.' ^!ERRORLEVEL^!)'.$redirect.$output.' 2>&1"';
+            return 'start /b cmd /v:on /c "('.$command.' & '.$finished.' ^!ERRORLEVEL^!)'.$redirect.$output.' 2>&1"';
         }
 
-        return $this->ensureCorrectUser($event,
-            '('.$event->command.$redirect.$output.' 2>&1 ; '.$finished.' "$?") > '
-            .ProcessUtils::escapeArgument($event->getDefaultOutput()).' 2>&1 &'
-        );
+        $command = '('.$command.$redirect.$output.' 2>&1 ; '.$finished.' "$?") > '
+            .ProcessUtils::escapeArgument($event->getDefaultOutput()).' 2>&1 &';
+
+        return $useEventUser
+            ? $this->ensureCorrectUser($event, $command)
+            : $this->ensureCorrectUserUsing($user, $command);
     }
 
     /**
@@ -70,8 +79,21 @@ class CommandBuilder
      */
     protected function ensureCorrectUser(Event $event, $command)
     {
-        return $event->user && ! windows_os()
-            ? 'sudo -u '.$event->user.' -- sh -c '.ProcessUtils::escapeArgument($command)
+        return $this->ensureCorrectUserUsing($event->user, $command);
+    }
+
+    protected function ensureCorrectUserUsing($user, $command)
+    {
+        return $user && ! windows_os()
+            ? 'sudo -u '.$user.' -- sh -c '.ProcessUtils::escapeArgument($command)
             : $command;
+    }
+
+    /**
+     * Build a command without output redirection using an explicit user.
+     */
+    public function buildCommandWithoutOutputUsing($command, $user)
+    {
+        return $this->ensureCorrectUserUsing($user, $command);
     }
 }

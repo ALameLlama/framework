@@ -4,6 +4,7 @@ namespace Illuminate\Tests\Console\Scheduling;
 
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\EventMutex;
+use Illuminate\Console\Scheduling\CommandBuilder;
 use Illuminate\Container\Container;
 use Illuminate\Support\ProcessUtils;
 use Illuminate\Support\Str;
@@ -16,6 +17,41 @@ use function Illuminate\Support\php_binary;
 
 class EventTest extends TestCase
 {
+    public function testCommandBuilderPreservesProtectedExtensionPoints()
+    {
+        $builder = new class extends CommandBuilder
+        {
+            public array $called = [];
+
+            protected function buildForegroundCommand(Event $event)
+            {
+                $this->called[] = 'foreground';
+
+                return parent::buildForegroundCommand($event);
+            }
+
+            protected function buildBackgroundCommand(Event $event)
+            {
+                $this->called[] = 'background';
+
+                return parent::buildBackgroundCommand($event);
+            }
+
+            protected function ensureCorrectUser(Event $event, $command)
+            {
+                $this->called[] = 'user';
+
+                return parent::ensureCorrectUser($event, $command);
+            }
+        };
+        $event = new Event(Mockery::mock(EventMutex::class), 'php -i');
+        $builder->buildCommand($event);
+        $event->runInBackground();
+        $builder->buildCommand($event);
+
+        $this->assertSame(['foreground', 'user', 'background', 'user'], $builder->called);
+    }
+
     #[RequiresOperatingSystem('Linux|Darwin')]
     public function testBuildCommandUsingUnix()
     {

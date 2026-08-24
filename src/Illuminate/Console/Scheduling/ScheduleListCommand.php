@@ -104,6 +104,12 @@ class ScheduleListCommand extends Command
                 }
             }
 
+            if ($event instanceof CommandChainEvent) {
+                $command = $event->description !== null
+                    ? $event->description.' ['.$event->getDisplayName().']'
+                    : $event->getDisplayName();
+            }
+
             return (new Collection(CronExpressionTimezoneConverter::forEvent($event, $timezone)))->map(fn ($expression) => [
                 'expression' => $expression,
                 'command' => $command,
@@ -200,6 +206,12 @@ class ScheduleListCommand extends Command
             if (in_array($command, ['Closure', 'Callback'])) {
                 $command = 'Closure at: '.$this->getClosureLocation($event);
             }
+        }
+
+        if ($event instanceof CommandChainEvent) {
+            $command = $event->description !== null
+                ? $event->description.' ['.$event->getDisplayName().']'
+                : $event->getDisplayName();
         }
 
         $command = mb_strlen($command) > 1 ? "{$command} " : '';
